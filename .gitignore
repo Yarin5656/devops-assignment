@@ -1,0 +1,43 @@
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Terraform backend config and local variable files
+terraform/backend.hcl
+terraform.tfvars
+terraform.tfvars.json
+*.auto.tfvars
+*.auto.tfvars.json
+secrets.tfvars
+*.tfplan
+
+# Kubernetes
+kubeconfig
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Secrets and credentials
+.env
+.env.*
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+.aws/
+
+# IDE/OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
