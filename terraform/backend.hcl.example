@@ -1,0 +1,7 @@
+# Example backend config file for remote state.
+# Create terraform/backend.hcl from this template and fill with your values.
+bucket         = "your-terraform-state-bucket"
+key            = "devops-assignment/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "your-terraform-lock-table"
+encrypt        = true
