@@ -1,5 +1,4 @@
-# Example backend config file for remote state.
-# Create terraform/backend.hcl from this template and fill with your values.
+# Example backend config file. Do not commit real values.
 bucket         = "your-terraform-state-bucket"
 key            = "devops-assignment/terraform.tfstate"
 region         = "us-east-1"
