@@ -1,0 +1,58 @@
+services:
+  localstack:
+    image: localstack/localstack:latest
+    container_name: task2-localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3,sqs,iam,sts
+      - AWS_DEFAULT_REGION=us-east-1
+      - DEBUG=0
+    volumes:
+      - ./data/localstack:/var/lib/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: task2-postgres
+    environment:
+      POSTGRES_DB: geodb
+      POSTGRES_USER: geo
+      POSTGRES_PASSWORD: geo
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geo -d geodb"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  worker:
+    build:
+      context: ./worker
+    container_name: task2-worker
+    depends_on:
+      localstack:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ENDPOINT_URL: http://localstack:4566
+      QUEUE_NAME: task2-ingest-queue
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: geodb
+      PGUSER: geo
+      PGPASSWORD: geo
+    restart: unless-stopped

@@ -1,0 +1,16 @@
+# Terraform artifacts
+infra/terraform/.terraform/
+infra/terraform/.terraform.lock.hcl
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.backup
+
+# Local runtime data
+data/localstack/
+data/postgres/
+
+# Python artifacts
+**/__pycache__/
+*.pyc
+
+# Local env files
+.env
