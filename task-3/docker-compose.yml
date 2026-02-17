@@ -1,0 +1,65 @@
+services:
+  webz-001:
+    build:
+      context: ./cluster
+    container_name: webz-001
+    hostname: webz-001
+    cap_add:
+      - NET_ADMIN
+    networks:
+      ha_net:
+        ipv4_address: 172.28.0.11
+    restart: unless-stopped
+
+  webz-002:
+    build:
+      context: ./cluster
+    container_name: webz-002
+    hostname: webz-002
+    cap_add:
+      - NET_ADMIN
+    networks:
+      ha_net:
+        ipv4_address: 172.28.0.12
+    restart: unless-stopped
+
+  webz-003:
+    build:
+      context: ./cluster
+    container_name: webz-003
+    hostname: webz-003
+    cap_add:
+      - NET_ADMIN
+    networks:
+      ha_net:
+        ipv4_address: 172.28.0.13
+    restart: unless-stopped
+
+  webz-004:
+    build:
+      context: ./jenkins
+    container_name: webz-004
+    hostname: webz-004
+    depends_on:
+      - webz-001
+      - webz-002
+      - webz-003
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./logs:/var/jenkins_logs
+      - jenkins_home:/var/jenkins_home
+    networks:
+      ha_net:
+        ipv4_address: 172.28.0.14
+    restart: unless-stopped
+
+volumes:
+  jenkins_home:
+
+networks:
+  ha_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
