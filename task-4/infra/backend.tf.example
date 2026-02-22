@@ -1,0 +1,12 @@
+# Optional S3 backend example.
+# Copy this file to backend.tf and replace values to use remote state.
+
+terraform {
+  backend "s3" {
+    bucket         = "REPLACE_WITH_BUCKET"
+    key            = "task-4/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "REPLACE_WITH_LOCK_TABLE"
+    encrypt        = true
+  }
+}
