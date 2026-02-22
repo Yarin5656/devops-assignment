@@ -1,0 +1,228 @@
+import groovy.json.JsonOutput
+
+def ALL_SERVICES = [
+  'user-service',
+  'transaction-service',
+  'notification-service'
+]
+
+def shouldRunForMainOrDevelop() {
+  return (env.BRANCH_NAME in ['main', 'develop']) || (env.CHANGE_TARGET in ['main', 'develop'])
+}
+
+pipeline {
+  agent { label 'linux' }
+
+  options {
+    timestamps()
+    disableConcurrentBuilds()
+    skipDefaultCheckout(false)
+  }
+
+  triggers {
+    // For multibranch webhook setups, SCM events trigger immediately.
+    // pollSCM is a fallback so branch jobs still pick up changes.
+    pollSCM('H/2 * * * *')
+  }
+
+  environment {
+    PUSH_IMAGES = "${env.PUSH_IMAGES ?: 'false'}"
+    REGISTRY_PROVIDER = "${env.REGISTRY_PROVIDER ?: 'dockerhub'}"
+    REGISTRY_NAMESPACE = "${env.REGISTRY_NAMESPACE ?: 'my-org'}"
+    DOCKER_REGISTRY = "${env.DOCKER_REGISTRY ?: ''}"
+    AWS_REGION = "${env.AWS_REGION ?: ''}"
+    AWS_ACCOUNT_ID = "${env.AWS_ACCOUNT_ID ?: ''}"
+    DOCKERHUB_CREDENTIALS_ID = "${env.DOCKERHUB_CREDENTIALS_ID ?: ''}"
+    AWS_CREDENTIALS_ID = "${env.AWS_CREDENTIALS_ID ?: ''}"
+    NOTIFICATION_WEBHOOK_CREDENTIALS_ID = "${env.NOTIFICATION_WEBHOOK_CREDENTIALS_ID ?: ''}"
+    SKIP_PIPELINE = 'false'
+  }
+
+  stages {
+    stage('Branch Gate') {
+      steps {
+        script {
+          if (!shouldRunForMainOrDevelop()) {
+            currentBuild.description = "Skipped for branch ${env.BRANCH_NAME} (target: ${env.CHANGE_TARGET})"
+            env.SKIP_PIPELINE = 'true'
+            echo 'Pipeline is configured only for main/develop push and PR builds. Skipping execution.'
+          }
+        }
+      }
+    }
+
+    stage('Detect Changed Services') {
+      when {
+        expression { return env.SKIP_PIPELINE != 'true' }
+      }
+      steps {
+        sh 'chmod +x shared/ci/*.sh'
+        script {
+          def diffBase = ''
+          if (env.CHANGE_TARGET?.trim()) {
+            sh "git fetch --no-tags origin +refs/heads/${env.CHANGE_TARGET}:refs/remotes/origin/${env.CHANGE_TARGET}"
+            diffBase = "origin/${env.CHANGE_TARGET}"
+          } else if (env.GIT_PREVIOUS_SUCCESSFUL_COMMIT?.trim()) {
+            diffBase = env.GIT_PREVIOUS_SUCCESSFUL_COMMIT
+          } else {
+            diffBase = sh(script: 'git rev-parse HEAD~1 2>/dev/null || true', returnStdout: true).trim()
+          }
+
+          List<String> changedPaths = []
+          if (diffBase) {
+            changedPaths = sh(
+              script: "git diff --name-only ${diffBase}...HEAD",
+              returnStdout: true
+            ).trim().split('\n').findAll { it?.trim() }
+          } else {
+            changedPaths = ALL_SERVICES.collect { "${it}/bootstrap" }
+          }
+
+          boolean sharedChanged = changedPaths.any { it.startsWith('shared/') }
+          List<String> changedServices = sharedChanged
+            ? ALL_SERVICES
+            : ALL_SERVICES.findAll { svc -> changedPaths.any { path -> path.startsWith("${svc}/") } }
+
+          env.CHANGED_SERVICES = changedServices.join(',')
+          env.CHANGED_SERVICES_JSON = JsonOutput.toJson(changedServices)
+          currentBuild.description = "Changed services: ${env.CHANGED_SERVICES ?: 'none'}"
+
+          echo "Changed paths:\n${changedPaths.join('\n')}"
+          echo "Changed services JSON: ${env.CHANGED_SERVICES_JSON}"
+        }
+      }
+    }
+
+    stage('Service CI (Parallel)') {
+      when {
+        expression { return env.SKIP_PIPELINE != 'true' && env.CHANGED_SERVICES?.trim() }
+      }
+      steps {
+        script {
+          Map<String, Closure> serviceStages = [:]
+          env.CHANGED_SERVICES.split(',').each { service ->
+            def svc = service.trim()
+            if (!svc) {
+              return
+            }
+            serviceStages[svc] = {
+              stage("${svc} CI") {
+                dir("${env.WORKSPACE}") {
+                  sh "shared/ci/lint.sh ${svc}"
+                  retry(2) {
+                    sh "shared/ci/test.sh ${svc}"
+                  }
+                  sh "shared/ci/scan.sh ${svc}"
+                  junit allowEmptyResults: true, testResults: "${svc}/test-results/**/*.xml"
+                  archiveArtifacts allowEmptyArchive: true, artifacts: "${svc}/coverage/**/*,${svc}/test-results/**/*,${svc}/security/**/*"
+                }
+              }
+            }
+          }
+          parallel(serviceStages + [failFast: true])
+        }
+      }
+    }
+
+    stage('Docker Build (Parallel)') {
+      when {
+        expression { return env.SKIP_PIPELINE != 'true' && env.CHANGED_SERVICES?.trim() }
+      }
+      steps {
+        script {
+          String imageTag = "ci-${env.GIT_COMMIT.take(7)}"
+          Map<String, Closure> builds = [:]
+          env.CHANGED_SERVICES.split(',').each { service ->
+            def svc = service.trim()
+            if (!svc) {
+              return
+            }
+            builds[svc] = {
+              stage("${svc} Docker Build") {
+                if (env.PUSH_IMAGES == 'true' && env.REGISTRY_PROVIDER == 'dockerhub') {
+                  if (!env.DOCKERHUB_CREDENTIALS_ID?.trim()) {
+                    error('DOCKERHUB_CREDENTIALS_ID is required when PUSH_IMAGES=true and REGISTRY_PROVIDER=dockerhub.')
+                  }
+                  withCredentials([usernamePassword(
+                    credentialsId: env.DOCKERHUB_CREDENTIALS_ID,
+                    usernameVariable: 'DOCKER_USERNAME',
+                    passwordVariable: 'DOCKER_PASSWORD'
+                  )]) {
+                    retry(2) {
+                      sh "shared/ci/build.sh ${svc} ${imageTag}"
+                    }
+                  }
+                } else if (env.PUSH_IMAGES == 'true' && env.REGISTRY_PROVIDER == 'ecr') {
+                  if (!env.AWS_CREDENTIALS_ID?.trim()) {
+                    error('AWS_CREDENTIALS_ID is required when PUSH_IMAGES=true and REGISTRY_PROVIDER=ecr.')
+                  }
+                  withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: env.AWS_CREDENTIALS_ID
+                  ]]) {
+                    retry(2) {
+                      sh "shared/ci/build.sh ${svc} ${imageTag}"
+                    }
+                  }
+                } else {
+                  retry(2) {
+                    sh "shared/ci/build.sh ${svc} ${imageTag}"
+                  }
+                }
+              }
+            }
+          }
+          parallel(builds + [failFast: true])
+        }
+      }
+    }
+
+    stage('Ready to deploy') {
+      when {
+        expression { return env.SKIP_PIPELINE != 'true' && env.CHANGED_SERVICES?.trim() }
+      }
+      steps {
+        input message: 'Ready to deploy?', ok: 'Approve'
+      }
+    }
+  }
+
+  post {
+    success {
+      script {
+        if (env.NOTIFICATION_WEBHOOK_CREDENTIALS_ID?.trim()) {
+          withCredentials([string(
+            credentialsId: env.NOTIFICATION_WEBHOOK_CREDENTIALS_ID,
+            variable: 'WEBHOOK_URL'
+          )]) {
+            sh '''
+              set -e
+              payload="{\\"text\\":\\"Jenkins SUCCESS: ${JOB_NAME} #${BUILD_NUMBER} (${BUILD_URL})\\"}"
+              curl -sS -X POST -H "Content-Type: application/json" --data "$payload" "$WEBHOOK_URL" >/dev/null
+            '''
+          }
+        } else {
+          echo 'Notification skipped: NOTIFICATION_WEBHOOK_CREDENTIALS_ID is not configured.'
+        }
+      }
+    }
+    failure {
+      script {
+        if (env.NOTIFICATION_WEBHOOK_CREDENTIALS_ID?.trim()) {
+          withCredentials([string(
+            credentialsId: env.NOTIFICATION_WEBHOOK_CREDENTIALS_ID,
+            variable: 'WEBHOOK_URL'
+          )]) {
+            sh '''
+              set -e
+              payload="{\\"text\\":\\"Jenkins FAILURE: ${JOB_NAME} #${BUILD_NUMBER} (${BUILD_URL})\\"}"
+              curl -sS -X POST -H "Content-Type: application/json" --data "$payload" "$WEBHOOK_URL" >/dev/null
+            '''
+          }
+        } else {
+          echo 'Notification skipped: NOTIFICATION_WEBHOOK_CREDENTIALS_ID is not configured.'
+        }
+      }
+    }
+  }
+}
