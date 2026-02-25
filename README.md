@@ -103,16 +103,31 @@ helm upgrade --install rickmorty-service ./helm/rickmorty-service \
 ```
 
 ## GitHub Actions workflow overview
-Workflow file: `.github/workflows/rickmorty-ci.yml`
+Primary workflow file: `.github/workflows/ci.yml`
 
-Pipeline steps:
+### Triggers
+- `push` to `main`
+- `pull_request` targeting `main`
+
+### What CI verifies
+Job 1 (`test-and-docker-smoke`):
 1. Checkout repo
 2. Setup Python 3.11
 3. Install dependencies
 4. Run unit tests
 5. Build Docker image
-6. Start container and run smoke checks (`/healthcheck`, `/characters`)
-7. Cleanup container
+6. Run container and execute smoke tests via `scripts/smoke_test.sh`
+
+Job 2 (`kind-k8s-smoke`):
+1. Build Docker image
+2. Create local Kubernetes cluster using kind
+3. Load image into kind
+4. Apply `yamls/` manifests
+5. Port-forward service and run same smoke tests
+
+Notes:
+- Smoke tests validate `/healthcheck`, `/characters`, and `/characters/export-csv`.
+- CI is local-runner only (no paid external services).
 
 ## Run tests locally
 ```bash
