@@ -1,5 +1,8 @@
 name: CI - RickMorty FastAPI
 
+env:
+  KIND_CLUSTER: ci
+
 on:
   push:
     branches: ["main"]
@@ -80,22 +83,31 @@ jobs:
         run: docker build -t rickmorty-fastapi:ci .
 
       - name: Create kind cluster
-        uses: helm/kind-action@v1.10.0
+        run: kind create cluster --name "$KIND_CLUSTER"
+
+      - name: Debug kind cluster
+        run: |
+          kind get clusters
+          kubectl cluster-info
+          kubectl get nodes -o wide
+
+      - name: Set kubectl context
+        run: kubectl config use-context "kind-${KIND_CLUSTER}"
 
       - name: Load image into kind
-        run: kind load docker-image rickmorty-fastapi:ci
+        run: kind load docker-image rickmorty-fastapi:ci --name "$KIND_CLUSTER"
 
       - name: Deploy Kubernetes manifests (offline fixture mode)
         run: |
-          kubectl apply -f yamls/
-          kubectl set image deployment/rickmorty-service rickmorty-service=rickmorty-fastapi:ci
-          kubectl set env deployment/rickmorty-service RM_OFFLINE=1
-          kubectl rollout status deployment/rickmorty-service --timeout=120s
-          kubectl get all
+          kubectl --context "kind-${KIND_CLUSTER}" apply -f yamls/
+          kubectl --context "kind-${KIND_CLUSTER}" set image deployment/rickmorty-service rickmorty-service=rickmorty-fastapi:ci
+          kubectl --context "kind-${KIND_CLUSTER}" set env deployment/rickmorty-service RM_OFFLINE=1
+          kubectl --context "kind-${KIND_CLUSTER}" rollout status deployment/rickmorty-service --timeout=120s
+          kubectl --context "kind-${KIND_CLUSTER}" get all
 
       - name: Port-forward service
         run: |
-          kubectl port-forward svc/rickmorty-service 18080:80 >/tmp/port-forward.log 2>&1 &
+          kubectl --context "kind-${KIND_CLUSTER}" port-forward svc/rickmorty-service 18080:80 >/tmp/port-forward.log 2>&1 &
           echo $! > /tmp/pf.pid
 
       - name: Wait for forwarded endpoint
