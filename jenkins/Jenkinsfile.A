@@ -1,0 +1,10 @@
+// Pipeline A (scaffold)
+// Trigger model: merged PR to main (configured in Jenkins webhook/SCM polling)
+pipeline {
+  agent any
+  stages {
+    stage('Build') { steps { echo 'Build app image' } }
+    stage('Push') { steps { echo 'Push to private local registry' } }
+    stage('Deploy devops namespace') { steps { echo 'Deploy to k8s namespace devops' } }
+  }
+}

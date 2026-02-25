@@ -1,54 +1,62 @@
 # TASKS.md — AUI DevOps Assignment 2024 (Local-Only Master Checklist)
 
 ## Constraints (must keep)
-- [ ] No real cloud calls (AWS only via LocalStack endpoint `http://localhost:4566`)
+- [ ] No real cloud calls (AWS via LocalStack endpoint `http://localhost:4566` only)
+- [ ] No real cloud credentials used
 - [ ] Work only inside this repo
-- [ ] No destructive commands without approval
-- [ ] No secret values committed
+- [ ] No destructive commands without explicit approval
+- [ ] No secrets committed
+
+---
+
+## Phase 1 — Structure and traceability
+- [x] `app/` contains service source (or clear placeholder notes)
+- [x] `docker/` created (`Dockerfile`, `.dockerignore`, `README.md`)
+- [x] `k8s/` created (`namespace-devops.yaml`, `app/*`, `jenkins/*`)
+- [x] `jenkins/` created (`Jenkinsfile.A/B/C`, `README.md`)
+- [x] `iac/` created with LocalStack-oriented Terraform scaffolding
+- [x] `scripts/` helper scripts scaffolded
+- [x] `evidence/` folders created for screenshots/logs
+- [x] `README.md` includes Requirement → File(s) mapping
+- [x] `docs/RUNBOOK.md` updated with local-only step-by-step order
 
 ---
 
 ## MVP path (minimum to pass)
 
 ### A) IaC + platform
-- [ ] Terraform profile for **LocalStack** provider/endpoints (safe local mode)
-- [ ] Local Kubernetes bootstrap scripts (kind cluster + ingress + namespace `devops`)
-- [ ] Optional LocalStack ECR emulation wiring (documented)
+- [ ] Implement Terraform resources in `iac/terraform/*` for LocalStack-safe demo
+- [ ] Implement cluster bootstrap commands in `scripts/setup-kind.sh`
+- [ ] Implement ingress + namespace setup in scripts/manifests
 
 ### B) App container
-- [ ] Dockerfile for provided service is valid and runnable locally
-- [ ] Local smoke test (`docker run` + `curl`) documented
+- [ ] Finalize Docker image hardening in `docker/Dockerfile`
+- [ ] Validate local image build/run path from runbook
 
-### C) Jenkins pipelines (A/B/C)
-- [ ] Pipeline A: trigger on merge to `main` path (simulated in local Jenkins), build image, push to private registry, deploy to `devops`
-- [ ] Pipeline B: Jenkins params for replica count + image tag update in same run
-- [ ] Pipeline C: Jenkins param injects file content into pods filesystem (ConfigMap/secret+mount approach)
+### C) Jenkins pipelines A/B/C
+- [ ] Implement Pipeline A logic in `jenkins/Jenkinsfile.A`
+- [ ] Implement Pipeline B logic in `jenkins/Jenkinsfile.B`
+- [ ] Implement Pipeline C logic in `jenkins/Jenkinsfile.C`
 
 ### D) HTTPS-only
-- [ ] App exposed with TLS ingress only
-- [ ] Jenkins exposed with TLS ingress only
-- [ ] HTTP→HTTPS redirect enforced
+- [ ] Finalize TLS generation/apply in `scripts/setup-tls.sh`
+- [ ] Enforce ingress HTTP→HTTPS redirect for app and Jenkins
 
 ### E) Evidence
-- [ ] k8s manifests / Helm / Jenkins pipeline files committed
-- [ ] At least one successful run log per pipeline (A/B/C)
-- [ ] Screenshots checklist completed
-- [ ] REST API proof (`curl -k https://...`) captured
+- [ ] Capture pipeline A/B/C success logs into `evidence/logs/`
+- [ ] Capture required screenshots into `evidence/screenshots/`
+- [ ] Add HTTPS curl proofs and resource outputs
 
 ---
 
 ## Production-like path (better quality)
 - [ ] Non-root containers + read-only root FS where practical
-- [ ] Liveness/readiness probes + resource requests/limits
-- [ ] Least-privilege service accounts/RBAC for Jenkins deploy actions
-- [ ] Secrets templates + no plaintext secret output in logs
-- [ ] Deterministic scripts for full rebuild from clean machine
-- [ ] Signed/tagged image strategy + immutable tags
-
----
+- [ ] Liveness/readiness probes + resource limits/requests
+- [ ] Least-privilege RBAC/service accounts for Jenkins deploy
+- [ ] Secret templates and masked logging
+- [ ] Deterministic rebuild scripts for clean machines
 
 ## Bonus items
-- [ ] Local observability addon (Prometheus/Grafana lightweight)
-- [ ] Policy checks (kubeconform/kube-linter/trivy)
-- [ ] Optional real-cloud template docs (not executed), clearly separated from local mode
-- [ ] Makefile targets for end-to-end automation
+- [ ] Local observability addon
+- [ ] Policy/security scans in CI
+- [ ] Optional real-cloud template docs (not executed)

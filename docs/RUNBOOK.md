@@ -1,44 +1,85 @@
 # RUNBOOK.md — Local-Only Execution Order (WSL Ubuntu)
 
+> Scope: local machine only. No real cloud endpoints.
+
 ## 0) Prerequisites
-- Docker Desktop (Linux containers)
-- kubectl, kind, helm, terraform, jq, openssl
-- `/etc/hosts` entries (local):
-  - `127.0.0.1 app.local`
-  - `127.0.0.1 jenkins.local`
+Install and verify:
 
-## 1) Bootstrap local platform
-1. Create kind cluster.
-2. Install NGINX Ingress Controller.
-3. Create namespace `devops`.
-4. Install local container registry (or connect to LocalStack ECR emulation mode).
+```bash
+docker --version
+kubectl version --client
+kind --version
+helm version
+terraform version
+openssl version
+```
 
-## 2) Build and test app image
-1. Build Docker image from `app/`.
-2. Push image to selected private local registry.
-3. Run smoke test locally with curl.
+Add local hosts entries:
 
-## 3) Deploy app to Kubernetes
-1. Apply/upgrade manifests (or Helm) into `devops` namespace.
-2. Create TLS secret.
-3. Apply ingress with HTTPS + redirect.
-4. Validate service over HTTPS.
+```bash
+# /etc/hosts
+127.0.0.1 app.local
+127.0.0.1 jenkins.local
+```
 
-## 4) Deploy Jenkins
-1. Deploy Jenkins locally (target architecture phase decision).
-2. Expose Jenkins with TLS ingress only.
-3. Configure required credentials placeholders.
+## 1) Bootstrap local cluster and ingress
+```bash
+bash scripts/setup-kind.sh
+bash scripts/setup-ingress.sh
+kubectl get nodes
+```
 
-## 5) Configure pipelines A/B/C
-1. Pipeline A: build/push/deploy on merge-to-main trigger model.
-2. Pipeline B: parameters (`REPLICAS`, `IMAGE_TAG`) and rollout.
-3. Pipeline C: parameterized file content injection into pod filesystem.
+## 2) Setup private local registry
+```bash
+bash scripts/setup-registry.sh
+```
 
-## 6) Validate and collect evidence
-1. Run each pipeline successfully at least once.
-2. Collect logs, screenshots, and curl outputs.
-3. Fill `docs/EVIDENCE_CHECKLIST.md`.
+Expected image naming convention:
+- `localhost:5001/devops-app:<tag>`
 
-## Notes
-- Never run Terraform/AWS CLI against real cloud endpoints.
-- LocalStack endpoint only when AWS APIs are required.
+## 3) Build and smoke-test app image
+```bash
+docker build -f docker/Dockerfile -t localhost:5001/devops-app:local .
+docker run --rm -p 8080:8080 localhost:5001/devops-app:local
+# in another terminal:
+curl -sS http://localhost:8080/
+```
+
+## 4) TLS assets (self-signed for local)
+```bash
+bash scripts/setup-tls.sh
+```
+
+## 5) Deploy Kubernetes resources
+```bash
+kubectl apply -f k8s/namespace-devops.yaml
+kubectl apply -k k8s/app
+kubectl apply -k k8s/jenkins
+```
+
+## 6) Verify HTTPS-only routes
+```bash
+curl -kI https://app.local
+curl -kI https://jenkins.local
+curl -I http://app.local
+curl -I http://jenkins.local
+```
+
+HTTP should redirect to HTTPS once ingress rules are fully implemented.
+
+## 7) Jenkins pipelines A/B/C
+Import and run:
+- `jenkins/Jenkinsfile.A`
+- `jenkins/Jenkinsfile.B`
+- `jenkins/Jenkinsfile.C`
+
+## 8) Collect evidence
+- Follow `docs/EVIDENCE_CHECKLIST.md`
+- Store artifacts in:
+  - `evidence/screenshots/`
+  - `evidence/logs/`
+
+## LocalStack / Terraform safety notes
+- Terraform path: `iac/terraform`
+- Endpoint must remain: `http://localhost:4566`
+- Never point provider to real AWS endpoints.

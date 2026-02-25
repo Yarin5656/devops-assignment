@@ -1,60 +1,43 @@
-# DevOps Assignment Portfolio Repo
+# AUI DevOps Assignment 2024 — Local-Only Implementation Repo
 
-Repository structure:
-- `terraform/`: modular Terraform (VPC + IAM + EKS + 2 node groups + ECR)
-- `terraform/bootstrap/`: S3 backend bucket + DynamoDB lock table
-- `app/`: Flask app + Dockerfile
-- `helm/`: Helm chart
+This repository is organized for a **local-only** assignment execution flow.
 
-## FREE Path (Local Validation Only)
+## Safety policy (hard)
+- No real AWS/GCP/Azure calls.
+- If AWS APIs are used, they are routed to **LocalStack** (`http://localhost:4566`) only.
+- Do not use real cloud credentials.
 
-No AWS resources are created in this path.
+## Standardized layout (Phase 1)
+- `app/` — provided service source code.
+- `docker/` — Dockerfile + docker notes for local build/run.
+- `k8s/` — Kubernetes manifests (devops namespace + app + Jenkins ingress/service/deploy scaffolding).
+- `jenkins/` — Jenkins pipeline files for A/B/C.
+- `iac/` — LocalStack-oriented Terraform scaffolding.
+- `scripts/` — helper scripts (kind, registry, ingress, tls, deploy, verify).
+- `evidence/` — where screenshots/logs are stored.
+- `docs/` — architecture, runbook, and evidence checklist.
 
-```bash
-terraform -chdir=terraform fmt -check -recursive
-terraform -chdir=terraform init -backend=false -input=false
-terraform -chdir=terraform validate
-helm lint ./helm
-```
+Legacy folders (`task-*`, `terraform/`, `helm/`, `.github/workflows/`) are intentionally kept and not deleted.
 
-Optional local app run:
+---
 
-```bash
-docker build -t devops-assignment-app:local ./app
-docker run --rm -p 8080:8080 devops-assignment-app:local
-```
+## Requirement → File(s) mapping
 
-## AWS Path (Creates Resources, Costs Money)
+| Assignment requirement | File(s) in repo |
+|---|---|
+| A) IaC for cluster + infra | `iac/terraform/providers.tf`, `iac/terraform/main.tf`, `iac/terraform/variables.tf`, `iac/terraform/outputs.tf`, `iac/terraform/README.md` |
+| B) Dockerfile for service | `docker/Dockerfile`, `docker/.dockerignore`, `docker/README.md`, `app/` |
+| C1) Pipeline A (merge-main, build/push/deploy devops) | `jenkins/Jenkinsfile.A`, `jenkins/README.md`, `k8s/app/*` |
+| C2) Pipeline B (replicas + image tag) | `jenkins/Jenkinsfile.B`, `jenkins/README.md`, `k8s/app/deployment.yaml` |
+| C3) Pipeline C (inject file content into pod fs) | `jenkins/Jenkinsfile.C`, `jenkins/README.md` |
+| D) HTTPS-only (app + Jenkins) | `k8s/app/ingress.yaml`, `k8s/jenkins/ingress.yaml`, `scripts/setup-tls.sh` |
+| E) Evidence (logs/screenshots/API proof) | `docs/EVIDENCE_CHECKLIST.md`, `evidence/screenshots/`, `evidence/logs/` |
+| F) Security best practices | `docs/ARCHITECTURE.md`, `TASKS.md` (security checklist) |
 
-Warning: this path creates billable AWS resources (EKS, EC2, NAT Gateway, LoadBalancer, ECR, S3, DynamoDB).
+---
 
-### 1) Bootstrap backend infra
-
-```bash
-terraform -chdir=terraform/bootstrap init
-terraform -chdir=terraform/bootstrap plan -out=tfplan-bootstrap
-terraform -chdir=terraform/bootstrap apply tfplan-bootstrap
-```
-
-### 2) Provision main infra
-
-```bash
-terraform -chdir=terraform init \
-  -backend-config="bucket=<STATE_BUCKET_NAME>" \
-  -backend-config="key=devops-assignment/terraform.tfstate" \
-  -backend-config="region=<AWS_REGION>" \
-  -backend-config="dynamodb_table=<LOCK_TABLE_NAME>" \
-  -backend-config="encrypt=true"
-
-terraform -chdir=terraform plan -out=tfplan
-terraform -chdir=terraform apply tfplan
-```
-
-### 3) Use outputs
-
-```bash
-terraform -chdir=terraform output eks_cluster_name
-terraform -chdir=terraform output eks_cluster_endpoint
-terraform -chdir=terraform output ecr_repository_url
-terraform -chdir=terraform output eks_cluster_iam_role_arn
-```
+## Quick navigation
+- Execution order: `docs/RUNBOOK.md`
+- Architecture: `docs/ARCHITECTURE.md`
+- Evidence capture list: `docs/EVIDENCE_CHECKLIST.md`
+- Master checklist: `TASKS.md`
