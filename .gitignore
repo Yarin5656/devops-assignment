@@ -41,3 +41,9 @@ id_rsa.pub
 .idea/
 .DS_Store
 Thumbs.db
+
+# Test/cache
+.pytest_cache/
+.coverage
+htmlcov/
+
