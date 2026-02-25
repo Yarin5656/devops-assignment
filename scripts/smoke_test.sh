@@ -11,9 +11,18 @@ if [[ "$health_code" != "200" ]]; then
   exit 1
 fi
 
-characters_code=$(curl -s -o /tmp/characters.json -w "%{http_code}" "${BASE_URL}/characters")
+characters_code=""
+for i in {1..5}; do
+  characters_code=$(curl -s -o /tmp/characters.json -w "%{http_code}" "${BASE_URL}/characters" || true)
+  if [[ "$characters_code" == "200" ]]; then
+    break
+  fi
+  echo "[smoke] /characters attempt ${i}/5 failed with status: ${characters_code}"
+  cat /tmp/characters.json || true
+  sleep 2
+done
 if [[ "$characters_code" != "200" ]]; then
-  echo "[smoke] /characters failed with status: $characters_code"
+  echo "[smoke] /characters failed after retries with status: $characters_code"
   exit 1
 fi
 
@@ -27,9 +36,18 @@ if not isinstance(payload, list):
 print(f'[smoke] /characters returned list with {len(payload)} items')
 PY
 
-export_code=$(curl -s -o /tmp/export.json -w "%{http_code}" "${BASE_URL}/characters/export-csv")
+export_code=""
+for i in {1..5}; do
+  export_code=$(curl -s -o /tmp/export.json -w "%{http_code}" "${BASE_URL}/characters/export-csv" || true)
+  if [[ "$export_code" == "200" ]]; then
+    break
+  fi
+  echo "[smoke] /characters/export-csv attempt ${i}/5 failed with status: ${export_code}"
+  cat /tmp/export.json || true
+  sleep 2
+done
 if [[ "$export_code" != "200" ]]; then
-  echo "[smoke] /characters/export-csv failed with status: $export_code"
+  echo "[smoke] /characters/export-csv failed after retries with status: $export_code"
   exit 1
 fi
 

@@ -32,22 +32,33 @@ jobs:
       - name: Start container
         run: docker run -d --name rickmorty-ci -p 8000:8000 rickmorty-fastapi:ci
 
-      - name: Wait for app readiness
+      - name: Wait for app readiness (up to 60s)
         run: |
-          for i in {1..20}; do
+          last_error=""
+          for i in {1..30}; do
             if curl -fsS http://127.0.0.1:8000/healthcheck >/dev/null; then
               echo "App is ready"
               exit 0
             fi
-            echo "Waiting for app... ($i/20)"
+            last_error=$(curl -sS http://127.0.0.1:8000/healthcheck || true)
+            echo "Waiting for app... ($i/30) last_error=${last_error}"
             sleep 2
           done
-          echo "App did not become ready in time"
-          docker logs rickmorty-ci || true
+          echo "App did not become ready in 60s"
           exit 1
 
       - name: Run smoke tests against container
         run: bash scripts/smoke_test.sh http://127.0.0.1:8000
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          echo "--- docker ps -a ---"
+          docker ps -a || true
+          echo "--- docker logs rickmorty-ci ---"
+          docker logs rickmorty-ci || true
+          echo "--- curl -v healthcheck ---"
+          curl -v http://127.0.0.1:8000/healthcheck || true
 
       - name: Cleanup container
         if: always()

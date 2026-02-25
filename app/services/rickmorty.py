@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import List
 
 import httpx
@@ -9,6 +10,8 @@ logger = logging.getLogger(__name__)
 
 RICK_AND_MORTY_CHARACTERS_URL = "https://rickandmortyapi.com/api/character"
 REQUEST_TIMEOUT_SECONDS = 10.0
+MAX_RETRIES = 3
+BACKOFF_SECONDS = 1.5
 
 
 class RickMortyServiceError(Exception):
@@ -34,19 +37,48 @@ def fetch_alive_human_from_earth() -> List[CharacterOut]:
     results: List[CharacterOut] = []
     next_url = RICK_AND_MORTY_CHARACTERS_URL
 
-    with httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS) as client:
+    headers = {"User-Agent": "rickmorty-assignment-ci/1.0"}
+
+    with httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS, headers=headers) as client:
         while next_url:
-            try:
-                response = client.get(next_url)
-                response.raise_for_status()
-            except httpx.TimeoutException as exc:
-                raise RickMortyServiceError("Request timed out while fetching characters") from exc
-            except httpx.HTTPStatusError as exc:
-                raise RickMortyServiceError(
-                    f"Rick and Morty API returned status {exc.response.status_code}"
-                ) from exc
-            except httpx.HTTPError as exc:
-                raise RickMortyServiceError("Network error while fetching characters") from exc
+            last_error: Exception | None = None
+            response = None
+
+            for attempt in range(1, MAX_RETRIES + 1):
+                try:
+                    response = client.get(next_url)
+                    if response.status_code == 429 and attempt < MAX_RETRIES:
+                        time.sleep(BACKOFF_SECONDS * attempt)
+                        continue
+                    response.raise_for_status()
+                    last_error = None
+                    break
+                except httpx.TimeoutException as exc:
+                    last_error = exc
+                    if attempt < MAX_RETRIES:
+                        time.sleep(BACKOFF_SECONDS * attempt)
+                        continue
+                except httpx.HTTPStatusError as exc:
+                    last_error = exc
+                    if exc.response.status_code in (429, 500, 502, 503, 504) and attempt < MAX_RETRIES:
+                        time.sleep(BACKOFF_SECONDS * attempt)
+                        continue
+                except httpx.HTTPError as exc:
+                    last_error = exc
+                    if attempt < MAX_RETRIES:
+                        time.sleep(BACKOFF_SECONDS * attempt)
+                        continue
+
+            if response is None or response.status_code >= 400:
+                if isinstance(last_error, httpx.TimeoutException):
+                    raise RickMortyServiceError("Request timed out while fetching characters") from last_error
+                if isinstance(last_error, httpx.HTTPStatusError):
+                    raise RickMortyServiceError(
+                        f"Rick and Morty API returned status {last_error.response.status_code}"
+                    ) from last_error
+                if last_error is not None:
+                    raise RickMortyServiceError("Network error while fetching characters") from last_error
+                raise RickMortyServiceError("Unknown error while fetching characters")
 
             payload = response.json()
             page_results = payload.get("results", [])
