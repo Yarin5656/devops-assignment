@@ -29,8 +29,8 @@ jobs:
       - name: Build Docker image
         run: docker build -t rickmorty-fastapi:ci .
 
-      - name: Start container
-        run: docker run -d --name rickmorty-ci -p 8000:8000 rickmorty-fastapi:ci
+      - name: Start container (offline fixture mode)
+        run: docker run -d --name rickmorty-ci -e RM_OFFLINE=1 -p 8000:8000 rickmorty-fastapi:ci
 
       - name: Wait for app readiness (up to 60s)
         run: |
@@ -85,10 +85,11 @@ jobs:
       - name: Load image into kind
         run: kind load docker-image rickmorty-fastapi:ci
 
-      - name: Deploy Kubernetes manifests
+      - name: Deploy Kubernetes manifests (offline fixture mode)
         run: |
           kubectl apply -f yamls/
           kubectl set image deployment/rickmorty-service rickmorty-service=rickmorty-fastapi:ci
+          kubectl set env deployment/rickmorty-service RM_OFFLINE=1
           kubectl rollout status deployment/rickmorty-service --timeout=120s
           kubectl get all
 

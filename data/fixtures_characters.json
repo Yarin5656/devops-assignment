@@ -1,0 +1,55 @@
+{
+  "info": {
+    "count": 5,
+    "pages": 1,
+    "next": null,
+    "prev": null
+  },
+  "results": [
+    {
+      "id": 1,
+      "name": "Rick Sanchez",
+      "status": "Alive",
+      "species": "Human",
+      "origin": {"name": "Earth"},
+      "location": {"name": "Citadel of Ricks"},
+      "image": "https://rickandmortyapi.com/api/character/avatar/1.jpeg"
+    },
+    {
+      "id": 2,
+      "name": "Morty Smith",
+      "status": "Alive",
+      "species": "Human",
+      "origin": {"name": "Earth"},
+      "location": {"name": "Citadel of Ricks"},
+      "image": "https://rickandmortyapi.com/api/character/avatar/2.jpeg"
+    },
+    {
+      "id": 3,
+      "name": "Alien Sample",
+      "status": "Alive",
+      "species": "Alien",
+      "origin": {"name": "Mars"},
+      "location": {"name": "Mars Colony"},
+      "image": "https://rickandmortyapi.com/api/character/avatar/14.jpeg"
+    },
+    {
+      "id": 4,
+      "name": "Dead Human Sample",
+      "status": "Dead",
+      "species": "Human",
+      "origin": {"name": "Earth"},
+      "location": {"name": "Earth"},
+      "image": "https://rickandmortyapi.com/api/character/avatar/15.jpeg"
+    },
+    {
+      "id": 5,
+      "name": "Replacement Earth Human",
+      "status": "Alive",
+      "species": "Human",
+      "origin": {"name": "Earth (Replacement Dimension)"},
+      "location": {"name": "Replacement Earth"},
+      "image": "https://rickandmortyapi.com/api/character/avatar/16.jpeg"
+    }
+  ]
+}

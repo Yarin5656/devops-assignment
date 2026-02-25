@@ -29,7 +29,7 @@ helm/rickmorty-service/
   Chart.yaml
   values.yaml
   templates/*
-.github/workflows/rickmorty-ci.yml
+.github/workflows/ci.yml
 data/
   output.csv (generated)
 tests/
@@ -56,6 +56,11 @@ docker build -t rickmorty-fastapi:local .
 Run:
 ```bash
 docker run --rm -p 8000:8000 rickmorty-fastapi:local
+```
+
+Run in offline fixture mode (deterministic, no external API calls):
+```bash
+docker run --rm -e RM_OFFLINE=1 -p 8000:8000 rickmorty-fastapi:local
 ```
 
 ## API endpoints
@@ -128,6 +133,19 @@ Job 2 (`kind-k8s-smoke`):
 Notes:
 - Smoke tests validate `/healthcheck`, `/characters`, and `/characters/export-csv`.
 - CI is local-runner only (no paid external services).
+- CI runs the app with `RM_OFFLINE=1` so tests are deterministic and not affected by upstream API rate limits.
+
+## Offline fixture mode (`RM_OFFLINE=1`)
+To make CI stable and deterministic, the app supports an offline mode:
+- When `RM_OFFLINE=1`, character data is loaded from `data/fixtures_characters.json`
+- The same filtering logic is used (`Human` + `Alive` + `origin == Earth`)
+- `/characters` and `/characters/export-csv` both use fixture data in this mode
+
+Normal mode (default) still calls the real Rick and Morty API.
+
+If upstream returns HTTP 429 in normal mode, the API responds with:
+- `503 Service Unavailable`
+- clear message: `Upstream API is rate-limited. Please retry shortly.`
 
 ## Run tests locally
 ```bash

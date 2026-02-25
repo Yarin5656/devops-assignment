@@ -16,6 +16,11 @@ def get_characters() -> list[dict]:
     try:
         characters = fetch_alive_human_from_earth()
     except RickMortyServiceError as exc:
+        if exc.upstream_status == 429:
+            raise HTTPException(
+                status_code=503,
+                detail="Upstream API is rate-limited. Please retry shortly.",
+            ) from exc
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return [character.model_dump() for character in characters]
@@ -27,6 +32,11 @@ def export_characters_csv() -> dict:
         characters = fetch_alive_human_from_earth()
         output_path = write_characters_to_csv(characters)
     except RickMortyServiceError as exc:
+        if exc.upstream_status == 429:
+            raise HTTPException(
+                status_code=503,
+                detail="Upstream API is rate-limited. Please retry shortly.",
+            ) from exc
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return {
