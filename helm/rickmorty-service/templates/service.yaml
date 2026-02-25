@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rickmorty-service.fullname" . }}
+  labels:
+    app: {{ include "rickmorty-service.name" . }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app: {{ include "rickmorty-service.name" . }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}

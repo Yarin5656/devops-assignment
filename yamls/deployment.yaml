@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rickmorty-service
+  labels:
+    app: rickmorty-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rickmorty-service
+  template:
+    metadata:
+      labels:
+        app: rickmorty-service
+    spec:
+      containers:
+        - name: rickmorty-service
+          image: rickmorty-fastapi:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8000
+          env:
+            - name: APP_ENV
+              value: "local"
+          readinessProbe:
+            httpGet:
+              path: /healthcheck
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 20

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: rickmorty-service
+description: Helm chart for Rick and Morty FastAPI assignment service
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

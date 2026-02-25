@@ -1,43 +1,125 @@
-# AUI DevOps Assignment 2024 — Local-Only Implementation Repo
+# Rick and Morty Assignment (FastAPI + CSV + DevOps Bonus)
 
-This repository is organized for a **local-only** assignment execution flow.
+Local, GitHub-ready solution using **Python 3.11** + **FastAPI**.
 
-## Safety policy (hard)
-- No real AWS/GCP/Azure calls.
-- If AWS APIs are used, they are routed to **LocalStack** (`http://localhost:4566`) only.
-- Do not use real cloud credentials.
+## What it does
+- Fetches all pages from Rick and Morty API.
+- Filters characters where:
+  - `species == "Human"`
+  - `status == "Alive"`
+  - `origin.name == "Earth"` (exact match)
+- Returns fields:
+  - `name`
+  - `location` (from `character.location.name`)
+  - `image` (URL)
+- Exposes REST endpoints and CSV export.
 
-## Standardized layout (Phase 1)
-- `app/` — provided service source code.
-- `docker/` — Dockerfile + docker notes for local build/run.
-- `k8s/` — Kubernetes manifests (devops namespace + app + Jenkins ingress/service/deploy scaffolding).
-- `jenkins/` — Jenkins pipeline files for A/B/C.
-- `iac/` — LocalStack-oriented Terraform scaffolding.
-- `scripts/` — helper scripts (kind, registry, ingress, tls, deploy, verify).
-- `evidence/` — where screenshots/logs are stored.
-- `docs/` — architecture, runbook, and evidence checklist.
+## Project structure
+```text
+app/
+  main.py
+  models.py
+  services/rickmorty.py
+  utils/csv_writer.py
+yamls/
+  deployment.yaml
+  service.yaml
+  ingress.yaml
+helm/rickmorty-service/
+  Chart.yaml
+  values.yaml
+  templates/*
+.github/workflows/rickmorty-ci.yml
+data/
+  output.csv (generated)
+tests/
+requirements.txt
+Dockerfile
+```
 
-Legacy folders (`task-*`, `terraform/`, `helm/`, `.github/workflows/`) are intentionally kept and not deleted.
+## Running locally (Python)
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
 
----
+If `python3.11` is not installed, use `python3`.
 
-## Requirement → File(s) mapping
+## Running with Docker
+Build:
+```bash
+docker build -t rickmorty-fastapi:local .
+```
 
-| Assignment requirement | File(s) in repo |
-|---|---|
-| A) IaC for cluster + infra | `iac/terraform/providers.tf`, `iac/terraform/main.tf`, `iac/terraform/variables.tf`, `iac/terraform/outputs.tf`, `iac/terraform/README.md` |
-| B) Dockerfile for service | `docker/Dockerfile`, `docker/.dockerignore`, `docker/README.md`, `app/` |
-| C1) Pipeline A (merge-main, build/push/deploy devops) | `jenkins/Jenkinsfile.A`, `jenkins/README.md`, `k8s/app/*` |
-| C2) Pipeline B (replicas + image tag) | `jenkins/Jenkinsfile.B`, `jenkins/README.md`, `k8s/app/deployment.yaml` |
-| C3) Pipeline C (inject file content into pod fs) | `jenkins/Jenkinsfile.C`, `jenkins/README.md` |
-| D) HTTPS-only (app + Jenkins) | `k8s/app/ingress.yaml`, `k8s/jenkins/ingress.yaml`, `scripts/setup-tls.sh` |
-| E) Evidence (logs/screenshots/API proof) | `docs/EVIDENCE_CHECKLIST.md`, `evidence/screenshots/`, `evidence/logs/` |
-| F) Security best practices | `docs/ARCHITECTURE.md`, `TASKS.md` (security checklist) |
+Run:
+```bash
+docker run --rm -p 8000:8000 rickmorty-fastapi:local
+```
 
----
+## API endpoints
+- `GET /healthcheck`
+- `GET /characters`
+- `GET /characters/export-csv`
 
-## Quick navigation
-- Execution order: `docs/RUNBOOK.md`
-- Architecture: `docs/ARCHITECTURE.md`
-- Evidence capture list: `docs/EVIDENCE_CHECKLIST.md`
-- Master checklist: `TASKS.md`
+### Example curl commands
+```bash
+curl -s http://127.0.0.1:8000/healthcheck
+curl -s http://127.0.0.1:8000/characters | jq '.[0:5]'
+curl -s http://127.0.0.1:8000/characters/export-csv
+```
+
+CSV is written to:
+- `data/output.csv`
+
+## Kubernetes deployment (yamls)
+> Assumes a running Kubernetes cluster and ingress controller.
+
+```bash
+kubectl apply -f yamls/deployment.yaml
+kubectl apply -f yamls/service.yaml
+kubectl apply -f yamls/ingress.yaml
+
+kubectl get deploy,svc,ingress
+```
+
+### Notes
+- Deployment uses probes on `/healthcheck`.
+- Service is `ClusterIP` on port 80 -> container 8000.
+- Ingress host default: `rickmorty.local`.
+
+## Helm deployment
+```bash
+helm upgrade --install rickmorty-service ./helm/rickmorty-service \
+  --set image.repository=rickmorty-fastapi \
+  --set image.tag=local
+```
+
+Override ingress host if needed:
+```bash
+helm upgrade --install rickmorty-service ./helm/rickmorty-service \
+  --set ingress.host=rickmorty.local
+```
+
+## GitHub Actions workflow overview
+Workflow file: `.github/workflows/rickmorty-ci.yml`
+
+Pipeline steps:
+1. Checkout repo
+2. Setup Python 3.11
+3. Install dependencies
+4. Run unit tests
+5. Build Docker image
+6. Start container and run smoke checks (`/healthcheck`, `/characters`)
+7. Cleanup container
+
+## Run tests locally
+```bash
+python -m unittest discover -s tests -v
+```
+
+## Notes
+- Uses `httpx` with timeout and robust error handling.
+- Pagination is handled via `info.next` until exhausted.
+- Bonus k8s and Helm are included and values-driven.

@@ -1,0 +1,41 @@
+name: RickMorty FastAPI CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+jobs:
+  test-build-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: Build Docker image
+        run: docker build -t rickmorty-fastapi:ci .
+
+      - name: Container smoke test
+        run: |
+          docker run -d --name rm-app -p 8000:8000 rickmorty-fastapi:ci
+          sleep 8
+          curl -fsS http://127.0.0.1:8000/healthcheck
+          curl -fsS http://127.0.0.1:8000/characters | head -c 500
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f rm-app || true

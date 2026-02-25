@@ -1,0 +1,29 @@
+replicaCount: 1
+
+image:
+  repository: rickmorty-fastapi
+  tag: local
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+
+ingress:
+  enabled: true
+  className: nginx
+  host: rickmorty.local
+  path: /
+  pathType: Prefix
+
+env:
+  APP_ENV: local
+
+probes:
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+  liveness:
+    initialDelaySeconds: 15
+    periodSeconds: 20
