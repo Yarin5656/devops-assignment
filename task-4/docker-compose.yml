@@ -1,0 +1,6 @@
+services:
+  app:
+    build: .
+    image: devops-fastapi:local
+    ports:
+      - "8000:8000"

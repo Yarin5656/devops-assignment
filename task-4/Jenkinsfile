@@ -1,0 +1,99 @@
+pipeline {
+  agent any
+
+  options {
+    timestamps()
+  }
+
+  parameters {
+    string(name: 'DOCKERHUB_REPO', defaultValue: 'yourdockerhubuser/devops-fastapi', description: 'Docker Hub repository')
+    string(name: 'APP_HOST', defaultValue: '', description: 'App EC2 public IP or ALB DNS (no http://)')
+    string(name: 'APP_SSH_USER', defaultValue: 'ubuntu', description: 'SSH user for App EC2')
+  }
+
+  environment {
+    IMAGE_TAG = "${params.DOCKERHUB_REPO}:${BUILD_NUMBER}"
+    IMAGE_LATEST = "${params.DOCKERHUB_REPO}:latest"
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Lint (flake8)') {
+      steps {
+        sh '''
+          python3 -m venv .venv-ci
+          . .venv-ci/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          flake8 app
+        '''
+      }
+    }
+
+    stage('Unit Tests (pytest)') {
+      steps {
+        sh '''
+          . .venv-ci/bin/activate
+          pytest -q
+        '''
+      }
+    }
+
+    stage('Build Docker Image') {
+      steps {
+        sh 'docker build -t ${IMAGE_TAG} -t ${IMAGE_LATEST} .'
+      }
+    }
+
+    stage('Push Docker Image') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'dockerhub-creds', usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_TOKEN')]) {
+          sh '''
+            echo "${DOCKERHUB_TOKEN}" | docker login -u "${DOCKERHUB_USER}" --password-stdin
+            docker push ${IMAGE_TAG}
+            docker push ${IMAGE_LATEST}
+            docker logout
+          '''
+        }
+      }
+    }
+
+    stage('Deploy to App EC2') {
+      steps {
+        sshagent(credentials: ['app-ssh-key']) {
+          sh '''
+            test -n "${APP_HOST}"
+            chmod +x jenkins/deploy_app.sh
+            APP_HOST=${APP_HOST} APP_SSH_USER=${APP_SSH_USER} IMAGE_REF=${IMAGE_LATEST} ./jenkins/deploy_app.sh
+          '''
+        }
+      }
+    }
+
+    stage('Health Check') {
+      steps {
+        sh '''
+          for i in $(seq 1 15); do
+            if curl -fsS "http://${APP_HOST}/" | grep -q "Hello, DevOps!"; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Post-deploy health check failed"
+          exit 1
+        '''
+      }
+    }
+  }
+
+  post {
+    always {
+      sh 'rm -rf .venv-ci || true'
+    }
+  }
+}
