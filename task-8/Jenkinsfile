@@ -1,0 +1,283 @@
+// =============================================================================
+// Jenkinsfile – Declarative pipeline for URL Shortener
+//
+// Stages
+// ------
+//   Checkout → Lint → Test → Security Scan → Build → Push → Deploy Staging
+//   Production deploy: manual approval after staging succeeds.
+//
+// Local run (without Jenkins)
+// ---------------------------
+//   ./scripts/run-pipeline-local.sh
+//
+// Required Jenkins Credentials (Manage Jenkins → Credentials)
+// -----------------------------------------------------------
+//   REGISTRY_CREDENTIALS  – Username/Password for container registry
+//                           (GHCR: username = GitHub username,
+//                            password = PAT with packages:write)
+//   KUBECONFIG_STAGING    – Secret File: base64-decoded kubeconfig
+//   KUBECONFIG_PRODUCTION – Secret File: base64-decoded kubeconfig
+//
+// Zero-cost mode: use local kind registry (localhost:5001) and kubeconfigs
+// from `scripts/setup-kind.sh`
+// =============================================================================
+
+pipeline {
+    agent {
+        docker {
+            image 'python:3.12-slim'
+            args  '--user root -v /var/run/docker.sock:/var/run/docker.sock'
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Global environment (override per branch/tag as needed)
+    // -------------------------------------------------------------------------
+    environment {
+        APP_DIR       = 'task-8'
+        IMAGE_NAME    = 'url-shortener'
+        REGISTRY      = 'localhost:5001'                 // local kind registry
+        COVERAGE_MIN  = '80'
+
+        // Computed in 'Checkout' stage
+        IMAGE_TAG     = ''
+        FULL_IMAGE    = ''
+    }
+
+    options {
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()
+    }
+
+    // -------------------------------------------------------------------------
+    stages {
+
+        // ---------------------------------------------------------------------
+        stage('Checkout') {
+            steps {
+                checkout scm
+                script {
+                    def shortSha = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                    def branch   = env.BRANCH_NAME ?: 'local'
+                    IMAGE_TAG    = "${branch}-${shortSha}"
+                    FULL_IMAGE   = "${REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+                    echo "Image will be: ${FULL_IMAGE}"
+                    currentBuild.displayName = "#${BUILD_NUMBER} [${IMAGE_TAG}]"
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        stage('Install Dependencies') {
+            steps {
+                dir("${APP_DIR}/app") {
+                    sh 'pip install --quiet -r requirements.txt'
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        stage('Lint') {
+            steps {
+                dir("${APP_DIR}/app") {
+                    sh 'ruff check .'
+                    sh 'ruff format --check .'
+                }
+            }
+            post {
+                failure {
+                    echo "Lint failed. Run 'make lint-fix' locally to auto-correct."
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        stage('Unit Tests') {
+            steps {
+                dir("${APP_DIR}/app") {
+                    sh """
+                        pytest tests/ -v \
+                            --cov=. \
+                            --cov-report=xml:coverage.xml \
+                            --cov-fail-under=${COVERAGE_MIN} \
+                            --junitxml=test-results.xml
+                    """
+                }
+            }
+            post {
+                always {
+                    junit       "${APP_DIR}/app/test-results.xml"
+                    cobertura   coberturaReportFile: "${APP_DIR}/app/coverage.xml"
+                }
+                failure {
+                    echo "Tests failed. Coverage gate: ${COVERAGE_MIN}%"
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        stage('Security Scan') {
+            steps {
+                script {
+                    // Install Docker CLI (agent already has socket mounted)
+                    sh 'apt-get update -qq && apt-get install -y -qq docker.io curl 2>/dev/null || true'
+
+                    // Build a temporary image for scanning
+                    sh "docker build -t ${IMAGE_NAME}:scan ${APP_DIR}/"
+
+                    // Install Trivy
+                    sh '''
+                        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+                            | sh -s -- -b /usr/local/bin 2>/dev/null
+                    '''
+
+                    // Quality gate: fail on CRITICAL or HIGH findings
+                    sh """
+                        trivy image \
+                            --exit-code 1 \
+                            --severity CRITICAL,HIGH \
+                            --ignore-unfixed \
+                            --no-progress \
+                            ${IMAGE_NAME}:scan
+                    """
+                }
+            }
+            post {
+                failure {
+                    echo "Security scan failed. Review findings and update base image or patch deps."
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        stage('Build Image') {
+            steps {
+                dir(APP_DIR) {
+                    sh "docker build -t ${FULL_IMAGE} -t ${IMAGE_NAME}:latest ."
+                    echo "Built: ${FULL_IMAGE}"
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        stage('Push Image') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'develop'
+                    buildingTag()
+                }
+            }
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'REGISTRY_CREDENTIALS',
+                        usernameVariable: 'REG_USER',
+                        passwordVariable: 'REG_PASS'
+                    )
+                ]) {
+                    sh "echo '${REG_PASS}' | docker login ${REGISTRY} -u '${REG_USER}' --password-stdin"
+                    sh "docker push ${FULL_IMAGE}"
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        stage('Deploy → Staging') {
+            when {
+                anyOf { branch 'develop'; branch 'main' }
+            }
+            environment {
+                KUBECONFIG = credentials('KUBECONFIG_STAGING')
+            }
+            steps {
+                dir(APP_DIR) {
+                    sh '''
+                        curl -sL https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh \
+                            | bash && mv kustomize /usr/local/bin/ 2>/dev/null || true
+                    '''
+                    sh """
+                        cd k8s/overlays/staging
+                        kustomize edit set image localhost:5001/${IMAGE_NAME}=${FULL_IMAGE}
+                        cd ../../..
+                        kustomize build k8s/overlays/staging | kubectl apply -f -
+                        kubectl rollout status deployment/url-shortener \
+                            -n url-shortener-staging --timeout=120s
+                    """
+                }
+            }
+            post {
+                failure {
+                    sh '''
+                        kubectl rollout undo deployment/url-shortener \
+                            -n url-shortener-staging || true
+                    '''
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        stage('Approve → Production') {
+            when {
+                anyOf { branch 'main'; buildingTag() }
+            }
+            steps {
+                timeout(time: 30, unit: 'MINUTES') {
+                    input message: "Deploy ${IMAGE_TAG} to PRODUCTION?",
+                          submitter: 'release-team',
+                          ok: 'Deploy'
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        stage('Deploy → Production') {
+            when {
+                anyOf { branch 'main'; buildingTag() }
+            }
+            environment {
+                KUBECONFIG = credentials('KUBECONFIG_PRODUCTION')
+            }
+            steps {
+                dir(APP_DIR) {
+                    sh """
+                        cd k8s/overlays/production
+                        kustomize edit set image localhost:5001/${IMAGE_NAME}=${FULL_IMAGE}
+                        cd ../../..
+                        kustomize build k8s/overlays/production | kubectl apply -f -
+                        kubectl rollout status deployment/url-shortener \
+                            -n url-shortener-production --timeout=180s
+                    """
+                }
+            }
+            post {
+                failure {
+                    sh '''
+                        kubectl rollout undo deployment/url-shortener \
+                            -n url-shortener-production || true
+                    '''
+                    echo "Production deploy FAILED – rollback triggered automatically."
+                }
+                success {
+                    echo "Production deploy succeeded: ${FULL_IMAGE}"
+                }
+            }
+        }
+
+    } // end stages
+
+    // -------------------------------------------------------------------------
+    post {
+        always {
+            cleanWs()
+        }
+        failure {
+            echo "Pipeline FAILED. Check above stages for details."
+        }
+        success {
+            echo "Pipeline PASSED. Image: ${FULL_IMAGE}"
+        }
+    }
+}

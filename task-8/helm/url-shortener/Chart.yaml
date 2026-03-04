@@ -1,0 +1,15 @@
+apiVersion: v2
+name: url-shortener
+description: FastAPI URL Shortener – production Helm chart
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+keywords:
+  - url-shortener
+  - fastapi
+  - python
+
+maintainers:
+  - name: platform-team
+    email: platform@example.com

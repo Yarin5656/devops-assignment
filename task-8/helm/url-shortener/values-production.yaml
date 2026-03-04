@@ -1,0 +1,35 @@
+# Production environment overrides
+replicaCount: 3
+
+env:
+  BASE_URL: "https://short.example.com"    # your real domain
+  LOG_LEVEL: "INFO"
+  APP_VERSION: "production"
+
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "500m"
+    memory: "256Mi"
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: url-shortener
+          topologyKey: kubernetes.io/hostname

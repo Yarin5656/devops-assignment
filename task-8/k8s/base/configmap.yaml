@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: url-shortener-config
+  labels:
+    app: url-shortener
+data:
+  # Application configuration – non-sensitive values only.
+  # Sensitive values (tokens, passwords) MUST be injected via Kubernetes Secrets
+  # or an External Secrets Operator. See docs/secrets-management.md.
+  APP_VERSION: "unknown"           # overridden at build/deploy time
+  LOG_LEVEL: "INFO"
+  BASE_URL: "http://url-shortener" # overridden by overlay
+  CODE_LENGTH: "6"

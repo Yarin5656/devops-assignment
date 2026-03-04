@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: url-shortener-production
+
+commonLabels:
+  environment: production
+
+bases:
+  - ../../base
+
+images:
+  - name: localhost:5001/url-shortener
+    newTag: "latest"              # replaced by: kustomize edit set image ... :<semver>
+
+patches:
+  - path: patch-deployment.yaml
+  - path: patch-pdb.yaml
+
+configMapGenerator:
+  - name: url-shortener-config
+    behavior: merge
+    literals:
+      - BASE_URL=http://url-shortener.prod.local
+      - LOG_LEVEL=INFO
+      - APP_VERSION=production

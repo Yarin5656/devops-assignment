@@ -1,0 +1,21 @@
+# Staging environment overrides
+replicaCount: 1
+
+env:
+  BASE_URL: "http://url-shortener-staging.local"
+  LOG_LEVEL: "DEBUG"
+  APP_VERSION: "staging"
+
+resources:
+  requests:
+    cpu: "50m"
+    memory: "64Mi"
+  limits:
+    cpu: "200m"
+    memory: "128Mi"
+
+autoscaling:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false

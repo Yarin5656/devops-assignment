@@ -1,0 +1,38 @@
+# kind cluster configuration for local development
+# Creates a 1-control-plane + 2-worker cluster with a local registry port mapped.
+#
+# Usage: kind create cluster --name url-shortener-local --config infra/kind/cluster.yaml
+
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+
+name: url-shortener-local
+
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      # Expose NodePort range for local service access
+      - containerPort: 30000
+        hostPort: 30000
+        protocol: TCP
+      - containerPort: 30001
+        hostPort: 30001
+        protocol: TCP
+
+  - role: worker
+  - role: worker
+
+# Local registry: after cluster creation, run scripts/setup-kind.sh which
+# connects the registry container (localhost:5001) to the kind network.
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".registry]
+      [plugins."io.containerd.grpc.v1.cri".registry.mirrors]
+        [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:5001"]
+          endpoint = ["http://kind-registry:5001"]

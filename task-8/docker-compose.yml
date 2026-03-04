@@ -1,0 +1,121 @@
+# =============================================================================
+# docker-compose.yml – Local developer environment
+#
+# Services
+# --------
+#   app      – FastAPI URL shortener (hot-reload enabled via volume mount)
+#   redis    – Optional future persistence layer (currently unused by app,
+#              included so devs can experiment with RedisStorage swap)
+#   localstack – AWS API emulation (S3/SQS/SSM/SecretsManager via LocalStack)
+#               All AWS CLI commands MUST use --endpoint-url=http://localhost:4566
+#
+# Usage
+# -----
+#   docker compose up           # start all services
+#   docker compose up app       # start only the app
+#   docker compose logs -f app  # follow app logs
+#   docker compose down -v      # teardown + remove volumes
+# =============================================================================
+
+version: "3.9"
+
+services:
+
+  # --------------------------------------------------------------------------
+  # URL Shortener application
+  # --------------------------------------------------------------------------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: url-shortener:local
+    container_name: url-shortener-app
+    ports:
+      - "8000:8000"
+    environment:
+      APP_VERSION: "local-dev"
+      BASE_URL: "http://localhost:8000"
+      LOG_LEVEL: "DEBUG"
+      # Future: swap storage backend
+      # STORAGE_BACKEND: "redis"
+      # REDIS_URL: "redis://redis:6379/0"
+    volumes:
+      # Hot-reload: mount source for development (overrides the COPY in Dockerfile)
+      - ./app:/app:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # --------------------------------------------------------------------------
+  # Redis – future persistence / caching layer
+  # Swap InMemoryStorage → RedisStorage in storage.py to use this.
+  # --------------------------------------------------------------------------
+  redis:
+    image: redis:7.2-alpine
+    container_name: url-shortener-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - backend
+
+  # --------------------------------------------------------------------------
+  # LocalStack – local AWS API emulation (zero cost, zero cloud)
+  #
+  # Emulated services: s3, secretsmanager, ssm, sqs, iam
+  # All AWS CLI calls must include: --endpoint-url=http://localhost:4566
+  #
+  # Example (create a secret locally):
+  #   aws --endpoint-url=http://localhost:4566 secretsmanager create-secret \
+  #       --name url-shortener/db-password --secret-string 'supersecret'
+  # --------------------------------------------------------------------------
+  localstack:
+    image: localstack/localstack:3.4
+    container_name: url-shortener-localstack
+    ports:
+      - "4566:4566"       # Main LocalStack gateway
+      - "4510-4559:4510-4559"  # External service ports
+    environment:
+      SERVICES: "s3,secretsmanager,ssm,sqs,iam"
+      DEBUG: "0"
+      PERSISTENCE: "1"
+      LOCALSTACK_AUTH_TOKEN: ""   # Community edition – no token needed
+    volumes:
+      - localstack-data:/var/lib/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - backend
+
+# ------------------------------------------------------------------------------
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  redis-data:
+  localstack-data:
